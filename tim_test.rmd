@@ -1,0 +1,100 @@
+---
+title: "TIm's Attempt At Analysis"
+author: "Tim Nieuwenhuis"
+date: "11/30/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(RCurl)
+library(R.utils)
+library(rvest)
+```
+Functions
+```{r}
+
+## getURL
+getURL <- function(URL, FUN, ..., N.TRIES = 1L) {
+        N.TRIES <- as.integer(N.TRIES)
+        stopifnot(length(N.TRIES) == 1L, !is.na(N.TRIES))
+        while (N.TRIES > 0L) {
+            result <- tryCatch(FUN(URL, ...), error = identity)
+            if (!inherits(result, "error")) 
+                break
+            N.TRIES <- N.TRIES - 1L
+        }
+        if (N.TRIES == 0L) {
+            stop("'getURL()' failed:", "\n  URL: ", URL, "\n  error: ", 
+                conditionMessage(result))
+        }
+                result
+    }
+
+
+# ## Downloader function
+# url = "https://datasets.imdbws.com/title.basics.tsv.gz"
+# filname = "title.basics.tsv"
+# temp <- tempfile()
+# getURL(URL = url, FUN = download.file, destfile = temp)
+# dat_out <- read.table(gzfile(temp, "data.tsv"), 
+#     header = TRUE, sep = "\t", stringsAsFactors = FALSE, fill = T)
+# unlink(temp)
+# 
+# 
+# temp <- tempfile()
+# download.file("https://datasets.imdbws.com/title.basics.tsv.gz",
+#               destfile = "data_in/title.basics.tsv.gz")
+# data <- read.table(gzfile("title.basics.tsv.gz"))
+# unlink(temp)
+# 
+# gunzip("title.basics.tsv.gz")
+# 
+
+
+imdb_downloader <- function(url){
+    if (!startsWith(url, "https")) {
+        url = paste0("https://datasets.imdbws.com/",url) 
+    }
+    temp <- tempfile()
+    getURL(URL = url, FUN = download.file, destfile = temp)
+    dat_out <- read.table(gzfile(temp, "data.tsv"), 
+        header = TRUE, sep = "\t", stringsAsFactors = FALSE, fill = T)
+    unlink(temp)
+    close(gzfile(temp, "data.tsv"))
+    closeAllConnections()
+    dat_out
+}
+
+```
+
+Start downloading Data
+```{r}
+data_titles <- imdb_downloader("title.basics.tsv.gz")
+
+```
+Webscrape 007 titles
+
+Using Rvest and wikipedia to quickly get James Bond titles
+```{r}
+bond_url <- "https://en.wikipedia.org/wiki/List_of_James_Bond_films"
+wik_bond <- read_html(bond_url)
+
+bond_table <- wik_bond %>% html_node("table") %>% html_table(fill = TRUE)
+```
+
+Filter imbd to bond titles
+```{r}
+data_titles %>%
+    filter(primaryTitle %in% bond_table$Title)
+
+ind <- data_titles$primaryTitle %in% bond_table$Title | data_titles$originalTitle %in% bond_table$Title
+bond_imdb_all <- data_titles[ind,]
+
+dplyr::filter(bond_imdb_all, titleType == "movie")
+
+## Lol where is quantum of solace?
+data_titles[startsWith(data_titles$primaryTitle, "Quantum") & data_titles$titleType == "movie",]
+```
+
