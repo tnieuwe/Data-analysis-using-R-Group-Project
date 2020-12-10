@@ -1,0 +1,136 @@
+---
+title: "Basic Analysis"
+author: "Tim Nieuwenhuis"
+date: "12/3/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+## Load in function I will be using
+
+```{r functions}
+
+
+getURL <- function(URL, FUN, ..., N.TRIES = 1L) {
+    ## Used to safely interact with websites
+        N.TRIES <- as.integer(N.TRIES)
+        stopifnot(length(N.TRIES) == 1L, !is.na(N.TRIES))
+        while (N.TRIES > 0L) {
+            result <- tryCatch(FUN(URL, ...), error = identity)
+            if (!inherits(result, "error")) 
+                break
+            N.TRIES <- N.TRIES - 1L
+        }
+        if (N.TRIES == 0L) {
+            stop("'getURL()' failed:", "\n  URL: ", URL, "\n  error: ", 
+                conditionMessage(result))
+        }
+                result
+    }
+
+
+imdb_downloader <- function(url){
+    ## The purpose of this function is to easily access and download the data
+    ## from the IMDB dataset website. This function particularly downloads files
+    ## temporarily and loads it into R. The download is temporary because the
+    ## files are large and will probably not be used passed this project
+    
+    ## This "if" is just to fill in the website if the full url was not given
+    if (!startsWith(url, "https")) {
+        url = paste0("https://datasets.imdbws.com/",url) 
+    }
+    ## generate temp file
+    temp <- tempfile()
+    ## getURL safely interacts and downloads the file into temp
+    getURL(URL = url, FUN = download.file, destfile = temp)
+    ## Unzip the .gz and read in the tsv
+    dat_out <- read.table(gzfile(temp, "data.tsv"), 
+        header = TRUE, sep = "\t", stringsAsFactors = FALSE, fill = T)
+    ## Close links and connections
+    unlink(temp)
+    close(gzfile(temp, "data.tsv"))
+    closeAllConnections()
+    ## Return dat_out
+    return(dat_out)
+}
+```
+
+## Load in data
+Needed data:
++ Title
++ Release
++ Director
++ Cast
++ Ratings
+
+Filtration will be used from data titles to minimize the size of data loaded
+into the environment, because these files are quite large. 
+```{r}
+if (!file.exists("imbd_filtered_dat.rda")) {
+    ## Movie titles and release years
+    data_titles <- imdb_downloader("title.basics.tsv.gz") %>%
+        mutate(startYear = as.numeric(startYear)) %>%
+        filter(startYear >= 1970,
+               titleType == "movie",
+               isAdult == "0")
+    ## Movie ratings
+    data_rating <- imdb_downloader("title.ratings.tsv.gz") %>%
+        filter(tconst %in% data_titles$tconst)
+    ## Directors and writer
+    data_director <- imdb_downloader("title.crew.tsv.gz") %>%
+        filter(tconst %in% data_titles$tconst)
+    ## Cast
+    data_cast <- imdb_downloader("title.principals.tsv.gz") %>%
+        filter(tconst %in% data_titles$tconst)
+    ## Cast Names
+    data_names <- imdb_downloader("name.basics.tsv.gz") %>%
+        filter(nconst %in% data_cast$nconst)
+    
+    save(data_titles,
+         data_rating,
+         data_director,
+         data_cast,
+         data_names,
+         file = "imbd_filtered_dat.rda")
+    
+}else{
+    load("imbd_filtered_dat.rda")
+}
+
+```
+Clean and combine datasets
+```{r}
+filt_titles <- data_titles %>%
+                filter(titleType == "movie",
+                       isAdult == "0",
+                       as.numeric(startYear) >= 1930)
+
+title_ratings <- left_join(filt_titles, data_rating) %>%
+    mutate(startYear = as.numeric(startYear)) %>%
+    filter(!is.na(averageRating))
+
+```
+Make a quick model and plot the two of the variables
+```{r}
+model_1 <-  lm(averageRating ~ startYear + numVotes, data = title_ratings)
+summary(model_1)
+
+## With no ylimit
+ggplot(title_ratings, aes(x = startYear, y = averageRating)) +
+    geom_smooth() +
+    #ylim(c(0,10)) +
+    theme_classic()
+
+## With Y limit
+ggplot(title_ratings, aes(x = startYear, y = averageRating)) +
+    geom_smooth() +
+    ylim(c(0,10)) +
+    theme_classic()
+
+
+```
+
