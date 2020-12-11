@@ -8,6 +8,7 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(rvest)
 ```
 
 ## Load in function I will be using
@@ -132,5 +133,128 @@ ggplot(title_ratings, aes(x = startYear, y = averageRating)) +
     theme_classic()
 
 
+```
+Horror comparison
+```{r}
+head(title_ratings)
+unique(unlist(strsplit(title_ratings$genres, ",")))
+
+title_ratings <- mutate(title_ratings, is_horror = str_detect(genres, "Horror"))
+
+
+## With no ylimit
+ggplot(title_ratings, aes(x = startYear, y = averageRating, color = is_horror)) +
+    geom_smooth() +
+    #ylim(c(0,10)) +
+    theme_classic()
+
+## With Y limit
+ggplot(title_ratings, aes(x = startYear, y = averageRating, color = is_horror)) +
+    geom_smooth() +
+    ylim(c(0,10)) +
+    theme_classic()
+
+horror_model <- lm(averageRating ~ is_horror + numVotes, data = title_ratings)
+summary(horror_model)
+```
+
+
+Combine to make one massive dataset. 
+```{r}
+head(data_cast)
+```
+
+Getting budgets for films with the most votes
+```{r}
+ord_title_ratings <- title_ratings %>% arrange(desc(averageRating))
+big_votes_title_ratings <- filter(title_ratings, numVotes > quantile(ord_title_ratings$numVotes, .99)) %>%
+    arrange(desc(averageRating))
+
+hist(big_votes_title_ratings$averageRating)
+
+movie_title <- "1917"
+movie_title <- title
+budget_and_box_finder <- function(movie_title, which = "both"){
+    ## Poorly account for roman numerals
+    if (str_detect(movie_title, "II")) {
+        movie_title <- str_replace(movie_title, "II", "2")
+    }
+    #leon catch
+    movie_title <- str_replace(movie_title, "Ã©", "é")
+    #1917 catch
+    if (movie_title == "1917") {
+        movie_title <- '1917_(2019_film)'
+    }
+    ## Format to wikipedias format
+     wiki_movie <- str_replace_all(movie_title, " ", "_")
+     url <- paste0("https://en.wikipedia.org/wiki/",wiki_movie)
+     ## Get html and pull the first table which holds all of the information
+     movie_html <- read_html(url)
+     # Catch it not being the film
+     possible_title <-  html_node(movie_html,
+                   xpath = '//*[@id="mw-content-text"]/div[1]/div[2]/a[1]') %>%
+         html_attr('title')
+     # Catch it being a generic wikipedia asking if it may refer to
+     if (is.na(possible_title)) {
+        may_may <- html_node(movie_html,
+                       xpath = '//*[@id="mw-content-text"]/div[1]/p/text()[2]') %>%
+             html_text()
+        may_bool <- str_detect(may_may, "may refer to")
+     }
+     
+     if ((str_detect(possible_title, "(film)") & !is.na(possible_title))) {
+     wiki_movie <- str_replace_all(possible_title, " ", "_")
+     url <- paste0("https://en.wikipedia.org/wiki/",wiki_movie)
+     ## Get html and pull the first table which holds all of the information
+     movie_html <- read_html(url)
+     } else if (may_bool){
+        url <- paste0(url, "_(film)")
+        movie_html <- read_html(url)
+     }
+     
+     tbls <- html_nodes(movie_html, "table") 
+     table_out <- tbls %>% html_table(fill = T)
+     ## Get table and rename columns
+     info_table <- table_out[[1]]
+     colnames(info_table) <- c("row", "data")
+     ## Remove [] citations
+      info_table$data <- gsub("\\[[^][]*]", "", info_table$data)
+      
+      ## Make numeric option here eventually
+      
+      
+      ## Select how you want the output
+      if (which == "both") {
+          table_out <- filter(info_table, row %in% c("Budget", "Box office"))
+          return(table_out)
+      } else if (which == "budget"){
+          ind <- info_table$row == "Budget"
+          budget_out <- info_table$data[ind]
+          if (sum(ind) == 0) {
+              return("no budget")
+          }
+          return(budget_out)
+      } else if (which == "box office"){
+          ind <- info_table$row == "Box office"
+          box_out <- info_table$data[ind]
+          return(box_out)
+      }
+}
+
+
+budget_and_box_finder(movie_title, "budget")
+
+sapply(big_votes_title_ratings$primaryTitle,FUN = function(x){
+    budget_and_box_finder(x, "budget")
+})
+
+
+budget_list <- list()
+for (title in big_votes_title_ratings$primaryTitle) {
+    budget_list[title] <- budget_and_box_finder(title, "budget")
+}
+
+mutate(big_votes_title_ratings, budget = budget_and_box_finder(titleType,
+                                                               "budget"))
 ```
 
