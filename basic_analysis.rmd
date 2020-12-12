@@ -167,24 +167,48 @@ head(data_cast)
 Getting budgets for films with the most votes
 ```{r}
 ord_title_ratings <- title_ratings %>% arrange(desc(averageRating))
-big_votes_title_ratings <- filter(title_ratings, numVotes > quantile(ord_title_ratings$numVotes, .99)) %>%
+big_votes_title_ratings <- filter(title_ratings, numVotes > quantile(ord_title_ratings$numVotes, .999)) %>%
     arrange(desc(averageRating))
 
 hist(big_votes_title_ratings$averageRating)
 
 movie_title <- "1917"
 movie_title <- title
-budget_and_box_finder <- function(movie_title, which = "both"){
+budget_and_box_finder <- function(movie_title, which = "both", year= NULL){
+  may_bool <- FALSE
+  ## Catching specific movie names
     ## Poorly account for roman numerals
-    if (str_detect(movie_title, "II")) {
+    if (str_detect(movie_title, " II ")) {
         movie_title <- str_replace(movie_title, "II", "2")
     }
     #leon catch
     movie_title <- str_replace(movie_title, "Ã©", "é")
+    movie_title <- str_replace_all(movie_title, "[.][.][.]", "")
+    movie_title <- str_replace_all(movie_title, "In Ho", "in Ho")
     #1917 catch
     if (movie_title == "1917") {
         movie_title <- '1917_(2019_film)'
     }
+    ## Star wars catch
+    if (movie_title == "Star Wars: Episode V - The Empire Strikes Back"){
+      movie_title <- "The Empire Strikes Back"
+    }
+    ## S7ven catch WHY
+    if (movie_title == "Se7en") {
+      movie_title <- "Seven_(1995_film)"
+    }
+    if (movie_title == "Gladiator") {
+      movie_title <- "Gladiator_(2000_film)"
+    }
+    if (movie_title == "The Pianist") {
+      movie_title <- "The_Pianist_(2002_film)"
+    }
+    if (movie_title == "The Hunt") {
+      movie_title <- "The_Hunt_(2020_film)"
+    }
+    
+    
+    
     ## Format to wikipedias format
      wiki_movie <- str_replace_all(movie_title, " ", "_")
      url <- paste0("https://en.wikipedia.org/wiki/",wiki_movie)
@@ -195,27 +219,47 @@ budget_and_box_finder <- function(movie_title, which = "both"){
                    xpath = '//*[@id="mw-content-text"]/div[1]/div[2]/a[1]') %>%
          html_attr('title')
      # Catch it being a generic wikipedia asking if it may refer to
-     if (is.na(possible_title)) {
-        may_may <- html_node(movie_html,
-                       xpath = '//*[@id="mw-content-text"]/div[1]/p/text()[2]') %>%
-             html_text()
-        may_bool <- str_detect(may_may, "may refer to")
-     }
+     # if (is.na(possible_title)) {
+     #    may_may <- html_node(movie_html,
+     #                   xpath = '//*[@id="mw-content-text"]/div[1]/p/text()[2]') %>%
+     #         html_text()
+     #    may_bool <- str_detect(may_may, "may refer to")
+     # }
      
      if ((str_detect(possible_title, "(film)") & !is.na(possible_title))) {
      wiki_movie <- str_replace_all(possible_title, " ", "_")
      url <- paste0("https://en.wikipedia.org/wiki/",wiki_movie)
      ## Get html and pull the first table which holds all of the information
      movie_html <- read_html(url)
-     } else if (may_bool){
-        url <- paste0(url, "_(film)")
-        movie_html <- read_html(url)
-     }
+     } #else if (may_bool){
+     #    url <- paste0(url, "_(film)")
+     #    movie_html <- read_html(url)
+     # }
      
      tbls <- html_nodes(movie_html, "table") 
      table_out <- tbls %>% html_table(fill = T)
      ## Get table and rename columns
      info_table <- table_out[[1]]
+     ## Catch more things, jesus christ, this one is for momento
+     old_url <- url
+    if (colnames(info_table)[1] == "X1") {
+        url <- paste0(url, "_(film)")
+        movie_html <- read_html(url)
+        tbls <- html_nodes(movie_html, "table")[1:2]
+        table_out <- tbls %>% html_table(fill = T)
+        info_table <- table_out[[1]]
+    }
+     ## If year is needed
+     if (colnames(info_table)[1] == "X1") {
+    url <- paste0(old_url, "_(",year,"_film)")
+    movie_html <- read_html(url)
+    tbls <- html_nodes(movie_html, "table") 
+    table_out <- tbls %>% html_table(fill = T)
+    info_table <- table_out[[1]]
+     }
+      if (colnames(info_table)[1] == "X1") {
+    info_table <- table_out[[2]]
+     }
      colnames(info_table) <- c("row", "data")
      ## Remove [] citations
       info_table$data <- gsub("\\[[^][]*]", "", info_table$data)
@@ -242,7 +286,7 @@ budget_and_box_finder <- function(movie_title, which = "both"){
 }
 
 
-budget_and_box_finder(movie_title, "budget")
+budget_and_box_finder(movie_title, "budget", year = year)
 
 sapply(big_votes_title_ratings$primaryTitle,FUN = function(x){
     budget_and_box_finder(x, "budget")
@@ -250,10 +294,12 @@ sapply(big_votes_title_ratings$primaryTitle,FUN = function(x){
 
 
 budget_list <- list()
-for (title in big_votes_title_ratings$primaryTitle) {
-    budget_list[title] <- budget_and_box_finder(title, "budget")
+for (k in seq(nrow(big_votes_title_ratings))) {
+    title <- big_votes_title_ratings$primaryTitle[k]
+    year <- big_votes_title_ratings$startYear[k]
+    budget_list[title] <- budget_and_box_finder(title, "budget", year = year)
 }
-
+length(budget_list)
 mutate(big_votes_title_ratings, budget = budget_and_box_finder(titleType,
                                                                "budget"))
 ```
