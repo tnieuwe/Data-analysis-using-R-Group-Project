@@ -50,7 +50,35 @@ imdb_downloader <- function(url){
     getURL(URL = url, FUN = download.file, destfile = temp)
     ## Unzip the .gz and read in the tsv
     dat_out <- read.table(gzfile(temp, "data.tsv"), 
-        header = TRUE, sep = "\t", stringsAsFactors = FALSE, fill = T)
+        header = TRUE, sep = "\t", stringsAsFactors = FALSE, fill = T,)
+    ## Close links and connections
+    unlink(temp)
+    close(gzfile(temp, "data.tsv"))
+    closeAllConnections()
+    ## Return dat_out
+    return(dat_out)
+}
+
+
+## Work in progress will use to further clean data if necessary
+
+imdb_downloader_2 <- function(url){
+    ## The purpose of this function is to easily access and download the data
+    ## from the IMDB dataset website. This function particularly downloads files
+    ## temporarily and loads it into R. The download is temporary because the
+    ## files are large and will probably not be used passed this project
+    
+    ## This "if" is just to fill in the website if the full url was not given
+    if (!startsWith(url, "https")) {
+        url = paste0("https://datasets.imdbws.com/",url) 
+    }
+    ## generate temp file
+    temp <- tempfile()
+    ## getURL safely interacts and downloads the file into temp
+    getURL(URL = url, FUN = download.file, destfile = temp)
+    ## Unzip the .gz and read in the tsv
+    dat_out <- read_delim(gzfile(temp, "data.tsv"), 
+        header = TRUE, delim = "\t", stringsAsFactors = FALSE, fill = T,)
     ## Close links and connections
     unlink(temp)
     close(gzfile(temp, "data.tsv"))
@@ -178,7 +206,7 @@ budget_and_box_finder <- function(movie_title, which = "both", year= NULL){
   may_bool <- FALSE
   ## Catching specific movie names
     ## Poorly account for roman numerals
-    if (str_detect(movie_title, " II ")) {
+    if (str_detect(movie_title, " II$")) {
         movie_title <- str_replace(movie_title, "II", "2")
     }
     #leon catch
@@ -286,7 +314,7 @@ budget_and_box_finder <- function(movie_title, which = "both", year= NULL){
 }
 
 
-budget_and_box_finder(movie_title, "budget", year = year)
+budget_and_box_finder(movie_title, "both", year = year)
 
 sapply(big_votes_title_ratings$primaryTitle,FUN = function(x){
     budget_and_box_finder(x, "budget")
@@ -294,13 +322,160 @@ sapply(big_votes_title_ratings$primaryTitle,FUN = function(x){
 
 
 budget_list <- list()
+box_list <- list()
 for (k in seq(nrow(big_votes_title_ratings))) {
     title <- big_votes_title_ratings$primaryTitle[k]
     year <- big_votes_title_ratings$startYear[k]
-    budget_list[title] <- budget_and_box_finder(title, "budget", year = year)
+    temp_info <-budget_and_box_finder(title, "both", year = year)
+    budget_list[title] <- temp_info[1,2]
+    box_list[title] <- temp_info[2,2]
 }
 length(budget_list)
-mutate(big_votes_title_ratings, budget = budget_and_box_finder(titleType,
-                                                               "budget"))
+
+big_votes_title_ratings$budget <- unlist(budget_list)
+big_votes_title_ratings$box_office <- unlist(box_list)
+```
+
+Making a function that calculates turns a string into a numeric
+```{r}
+
+money_vect <- c("$6–7.2 million",  "€9.5 million($10.8 million)", "$1.142 billion", "$58.3 million", "$1.067 billion")
+money_vect <- "$237 million$9 million+ (re-release)" 
+money_vect <- unlist(box_list)
+#temp_vect <- gsub("\\-", "-", pract_vect)
+
+
+wiki_money <- function(money_vect){
+  ## To catch avatar's weird budget
+  temp_vect <- gsub("n\\$[1-9].+", "", money_vect)
+  ##
+  temp_vect <- gsub("^.+\\$", "", temp_vect)
+  temp_vect <- gsub("^.+\\–", "", temp_vect)
+  temp_vect <- gsub("milli.+", "", temp_vect)
+  temp_vect <- gsub("\\$", "", temp_vect)
+  ## Deal with billion to make million
+  bill_ind <- grep("billi", temp_vect)
+  temp_vect <- gsub("billi.+", "", temp_vect)
+  #Back together
+  temp_vect <- str_trim(temp_vect)
+  num_mil <- as.numeric(temp_vect)
+  num_mil[bill_ind] <- num_mil[bill_ind] * 1000
+  return(num_mil)
+}
+
+#wiki_money(unlist(box_list))
+
+big_votes_title_ratings$budget <- wiki_money(big_votes_title_ratings$budget)
+big_votes_title_ratings$box_office <- wiki_money(big_votes_title_ratings$box_office)
+```
+
+Plot movies with most votes and their budgets.
+```{r}
+ggplot(big_votes_title_ratings, aes(budget, box_office)) +
+  geom_point() +
+  theme_classic() +
+  labs(title = "IMDb Movies with the most votes and their box office vs budget",
+       subtitle = "box office and budget from Wikipedia") +
+  ylab("Box Office Earnings (In Millions)") +
+  xlab("Budget (In Millions)") +
+  annotate("text", 220, 2850, label = "Avatar")
+
+
+ggplot(big_votes_title_ratings, aes(budget, averageRating)) +
+  geom_point() +
+  theme_classic()
+
+
+
+ggplot(big_votes_title_ratings, aes(box_office, averageRating)) +
+  geom_point() +
+  theme_classic()
+```
+
+```{r}
+rsq <- function (x, y) cor(x, y,) ^ 2
+
+no_na_no_avatar <- filter(big_votes_title_ratings, primaryTitle != "Avatar",
+                          !is.na(box_office),
+                          !is.na(budget))
+no_na<- filter(big_votes_title_ratings, 
+                          !is.na(box_office),
+                          !is.na(budget))
+
+rsq(no_na_no_avatar$budget, no_na_no_avatar$box_office)
+rsq(no_na$budget, no_na$box_office)
+cor(no_na_no_avatar$budget, no_na_no_avatar$box_office)
+```
+Person Movie List
+```{r}
+
+## Data Names somehow got messed up row 50 and possible other rows include multiple
+## directors and actors such as Uma thurman, Denzel washington, Quentin Tarntino etc.
+## idk how to fix that, but I'm just going to push forward with the project as is and get back to that.
+## GOod lord there are some heavy hitters lost in there.
+
+## Used to train function
+person <- "Christopher Walken"
+year <- NA
+director <- NA
+profession <- NA
+genre <- NA
+ need_lead = FALSE
+min_rating = 0
+actor_movies <- function(person, year = NA,
+                         director = NA,
+                         profession = NA,
+                         genre = NA,
+                         min_rating = 0,
+                         need_lead = FALSE) {
+## Filter names and get constant
+  temp_names <- filter(data_names, primaryName == person)
+  name_const <- temp_names$nconst
+  temp_cast <- filter(data_cast, nconst == name_const)  %>%
+    mutate(characters = gsub("\\[", "", gsub("\\]", "", characters)))
+  ## Get leads
+  if (need_lead == TRUE) {
+    temp_cast <- filter(temp_cast, ordering == 1)
+  }
+  ## Filter profession
+  if (!is.na(profession)) {
+    temp_cast <- filter(temp_cast, categor == profession)
+  }
+  temp_title <- title_ratings %>%
+    ## Get movies of actors, apply min_rating and release filter, clean up
+    filter(tconst %in% temp_cast$tconst,
+           averageRating >= min_rating,
+           case_when(
+             !is.na(year) ~ startYear == year,
+             TRUE ~ is.numeric(startYear)
+           )) %>% select(tconst,
+                         primaryTitle,
+                         release_year = startYear,
+                         genres,
+                         averageRating)
+  ## Genre wouldn't work in code above
+  if (!is.na(genre)) {
+    temp_title <- filter(temp_title, str_detect(genres, genre))
+  }
+  ## Rename stuff to look nice and return
+  final_out <- left_join(temp_title, temp_cast, by = "tconst") %>%
+                  select(`Movie Title` = primaryTitle,
+                         `Release Year` = release_year,
+                         Job = category,
+                         Role = characters,
+                         `Name Order` = ordering, 
+                         Rating = averageRating,
+                         Genres = genres)
+  return(final_out)
+}
+
+actor_movies("Christopher Walken", need_lead = T, year = 1990, min_rating = 6.5)
+actor_movies("Bryan Cranston")
+actor_movies("Philip Seymour Hoffman")
+actor_movies("Michael Cera")
+
+
+## I think maybe the issue that I mentioned is happening with the actors is also
+## happening with movies, that would make a lot of sense. 
 ```
 
