@@ -9,6 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(rvest)
+library(data.table)
 ```
 
 ## Load in function I will be using
@@ -51,6 +52,7 @@ imdb_downloader <- function(url){
     ## Unzip the .gz and read in the tsv
     dat_out <- read.table(gzfile(temp, "data.tsv"), 
         header = TRUE, sep = "\t", stringsAsFactors = FALSE, fill = T,)
+
     ## Close links and connections
     unlink(temp)
     close(gzfile(temp, "data.tsv"))
@@ -61,7 +63,7 @@ imdb_downloader <- function(url){
 
 
 ## Work in progress will use to further clean data if necessary
-
+url = "name.basics.tsv.gz"
 imdb_downloader_2 <- function(url){
     ## The purpose of this function is to easily access and download the data
     ## from the IMDB dataset website. This function particularly downloads files
@@ -77,15 +79,20 @@ imdb_downloader_2 <- function(url){
     ## getURL safely interacts and downloads the file into temp
     getURL(URL = url, FUN = download.file, destfile = temp)
     ## Unzip the .gz and read in the tsv
-    dat_out <- read_delim(gzfile(temp, "data.tsv"), 
-        header = TRUE, delim = "\t", stringsAsFactors = FALSE, fill = T,)
+    dat_out <- read_delim(temp, delim = "\t")
+      return(dat_out)
     ## Close links and connections
     unlink(temp)
-    close(gzfile(temp, "data.tsv"))
+    #close(gzfile(temp, "data.tsv"))
     closeAllConnections()
     ## Return dat_out
     return(dat_out)
 }
+
+# test_names <- read_delim(file = "data_in/data.tsv",delim = "\t")
+# test_names <- fread(file = "data_in/data.tsv")
+# test_names <- imdb_downloader_2("name.basics.tsv.gz")
+# "Quentin Tarantino" %in% test_names$primaryName 
 ```
 
 ## Load in data
@@ -101,22 +108,22 @@ into the environment, because these files are quite large.
 ```{r}
 if (!file.exists("imbd_filtered_dat.rda")) {
     ## Movie titles and release years
-    data_titles <- imdb_downloader("title.basics.tsv.gz") %>%
+    data_titles <- imdb_downloader_2("title.basics.tsv.gz") %>%
         mutate(startYear = as.numeric(startYear)) %>%
         filter(startYear >= 1970,
                titleType == "movie",
                isAdult == "0")
     ## Movie ratings
-    data_rating <- imdb_downloader("title.ratings.tsv.gz") %>%
+    data_rating <- imdb_downloader_2("title.ratings.tsv.gz") %>%
         filter(tconst %in% data_titles$tconst)
     ## Directors and writer
-    data_director <- imdb_downloader("title.crew.tsv.gz") %>%
+    data_director <- imdb_downloader_2("title.crew.tsv.gz") %>%
         filter(tconst %in% data_titles$tconst)
     ## Cast
-    data_cast <- imdb_downloader("title.principals.tsv.gz") %>%
+    data_cast <- imdb_downloader_2("title.principals.tsv.gz") %>%
         filter(tconst %in% data_titles$tconst)
     ## Cast Names
-    data_names <- imdb_downloader("name.basics.tsv.gz") %>%
+    data_names <- imdb_downloader_2("name.basics.tsv.gz") %>%
         filter(nconst %in% data_cast$nconst)
     
     save(data_titles,
@@ -196,11 +203,11 @@ Getting budgets for films with the most votes
 ```{r}
 ord_title_ratings <- title_ratings %>% arrange(desc(averageRating))
 big_votes_title_ratings <- filter(title_ratings, numVotes > quantile(ord_title_ratings$numVotes, .999)) %>%
-    arrange(desc(averageRating))
+    arrange(desc(averageRating)) %>% slice_head(n = 100)
 
 hist(big_votes_title_ratings$averageRating)
 
-movie_title <- "1917"
+movie_title <- "Sin City"
 movie_title <- title
 budget_and_box_finder <- function(movie_title, which = "both", year= NULL){
   may_bool <- FALSE
@@ -225,8 +232,8 @@ budget_and_box_finder <- function(movie_title, which = "both", year= NULL){
     if (movie_title == "Se7en") {
       movie_title <- "Seven_(1995_film)"
     }
-    if (movie_title == "Gladiator") {
-      movie_title <- "Gladiator_(2000_film)"
+    if (movie_title == "Sin City") {
+      movie_title <- "Sin_City_(film)"
     }
     if (movie_title == "The Pianist") {
       movie_title <- "The_Pianist_(2002_film)"
@@ -268,14 +275,37 @@ budget_and_box_finder <- function(movie_title, which = "both", year= NULL){
      table_out <- tbls %>% html_table(fill = T)
      ## Get table and rename columns
      info_table <- table_out[[1]]
+     #Toy story is being renamed to Toy Story Fil,
+     if (str_detect(info_table[1,2], "A request") |
+          str_detect(info_table[1,2], "additional") |
+         is.na(info_table[1,2])) {
+       info_table <- table_out[[2]]
+     }
      ## Catch more things, jesus christ, this one is for momento
      old_url <- url
-    if (colnames(info_table)[1] == "X1") {
+    if (colnames(info_table)[1] %in% c("X1", "State")) {
         url <- paste0(url, "_(film)")
         movie_html <- read_html(url)
-        tbls <- html_nodes(movie_html, "table")[1:2]
+        tbls <- html_nodes(movie_html, "table")[1]
         table_out <- tbls %>% html_table(fill = T)
         info_table <- table_out[[1]]
+          if (str_detect(info_table[1,2], "Disambiguation") |
+              str_detect(info_table[1,2], "additional") |
+              is.na(info_table[1,2])) {
+            ## Catch city of god
+              if (length(html_nodes(movie_html, "table")) == 1) {
+                 url <- paste0(old_url, "_(",year,"_film)")
+                movie_html <- read_html(url)
+                tbls <- html_nodes(movie_html, "table") 
+                table_out <- tbls %>% html_table(fill = T)
+                info_table <- table_out[[1]]
+              } else {
+        tbls <- html_nodes(movie_html, "table")[2]
+        table_out <- tbls %>% html_table(fill = T)
+       info_table <- table_out[[1]]
+              }
+     }
+
     }
      ## If year is needed
      if (colnames(info_table)[1] == "X1") {
@@ -284,6 +314,7 @@ budget_and_box_finder <- function(movie_title, which = "both", year= NULL){
     tbls <- html_nodes(movie_html, "table") 
     table_out <- tbls %>% html_table(fill = T)
     info_table <- table_out[[1]]
+
      }
       if (colnames(info_table)[1] == "X1") {
     info_table <- table_out[[2]]
@@ -316,9 +347,9 @@ budget_and_box_finder <- function(movie_title, which = "both", year= NULL){
 
 budget_and_box_finder(movie_title, "both", year = year)
 
-sapply(big_votes_title_ratings$primaryTitle,FUN = function(x){
-    budget_and_box_finder(x, "budget")
-})
+# sapply(big_votes_title_ratings$primaryTitle,FUN = function(x){
+#     budget_and_box_finder(x, "budget")
+# })
 
 
 budget_list <- list()
@@ -372,14 +403,13 @@ big_votes_title_ratings$box_office <- wiki_money(big_votes_title_ratings$box_off
 Plot movies with most votes and their budgets.
 ```{r}
 ggplot(big_votes_title_ratings, aes(budget, box_office)) +
-  geom_point() +
+ geom_point() +
+  #geom_text(aes(label = primaryTitle )) +
   theme_classic() +
   labs(title = "IMDb Movies with the most votes and their box office vs budget",
        subtitle = "box office and budget from Wikipedia") +
   ylab("Box Office Earnings (In Millions)") +
-  xlab("Budget (In Millions)") +
-  annotate("text", 220, 2850, label = "Avatar")
-
+  xlab("Budget (In Millions)") 
 
 ggplot(big_votes_title_ratings, aes(budget, averageRating)) +
   geom_point() +
