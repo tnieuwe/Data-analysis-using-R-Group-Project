@@ -177,7 +177,7 @@ Since IMDb lacks this data we decided to webscrape wikipedia articles for the bu
 
 ## budget_and_box_finder original function
 
-Its bloated, to someone who doesn't know why we did what we did, it makes no sense.
+### Working harder
 
 ```{r}
 budget_and_box_finder <- function(movie_title, which = "both", year= NULL){
@@ -312,7 +312,7 @@ budget_and_box_finder <- function(movie_title, which = "both", year= NULL){
 
 ## budget_and_box_finder_2 function
 
-Still bloated, but much better.
+### Working smarter
 
 ```{r}
 budget_and_box_finder_2 <- function(movie_title, which = "both", year= NULL){
