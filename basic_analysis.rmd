@@ -241,9 +241,6 @@ budget_and_box_finder <- function(movie_title, which = "both", year= NULL){
     if (movie_title == "The Hunt") {
       movie_title <- "The_Hunt_(2020_film)"
     }
-    
-    
-    
     ## Format to wikipedias format
      wiki_movie <- str_replace_all(movie_title, " ", "_")
      url <- paste0("https://en.wikipedia.org/wiki/",wiki_movie)
@@ -322,10 +319,7 @@ budget_and_box_finder <- function(movie_title, which = "both", year= NULL){
      colnames(info_table) <- c("row", "data")
      ## Remove [] citations
       info_table$data <- gsub("\\[[^][]*]", "", info_table$data)
-      
       ## Make numeric option here eventually
-      
-      
       ## Select how you want the output
       if (which == "both") {
           table_out <- filter(info_table, row %in% c("Budget", "Box office"))
@@ -345,7 +339,7 @@ budget_and_box_finder <- function(movie_title, which = "both", year= NULL){
 }
 
 
-budget_and_box_finder(movie_title, "both", year = year)
+#budget_and_box_finder(movie_title, "both", year = year)
 
 # sapply(big_votes_title_ratings$primaryTitle,FUN = function(x){
 #     budget_and_box_finder(x, "budget")
@@ -501,11 +495,103 @@ actor_movies <- function(person, year = NA,
 
 actor_movies("Christopher Walken", need_lead = T, year = 1990, min_rating = 6.5)
 actor_movies("Bryan Cranston")
-actor_movies("Philip Seymour Hoffman")
-actor_movies("Michael Cera")
+actor_movies("Philip Seymour Hoffman", genre = "Drama")
+actor_movies("Quentin Tarantino")
 
 
 ## I think maybe the issue that I mentioned is happening with the actors is also
 ## happening with movies, that would make a lot of sense. 
 ```
 
+Better budget maker
+```{r}
+ord_title_ratings <- title_ratings %>% arrange(desc(averageRating))
+big_votes_title_ratings <- filter(title_ratings, numVotes > quantile(ord_title_ratings$numVotes, .999)) #%>%
+   # arrange(desc(averageRating)) %>% slice_head(n = 100)
+
+hist(big_votes_title_ratings$averageRating)
+
+movie_title <- "Sin City"
+movie_title <- title
+budget_and_box_finder_2 <- function(movie_title, which = "both", year= NULL){
+    if (str_detect(movie_title, " II$")) {
+        movie_title <- str_replace(movie_title, "II", "2")
+    }
+    #leon catch
+    movie_title <- str_replace(movie_title, "Ã©", "é")
+    # IN Hollywood
+    movie_title <- str_replace_all(movie_title, "[.][.][.]", "")
+    movie_title <- str_replace_all(movie_title, "In Ho", "in Ho")
+    ## Format to wikipedias format
+     wiki_movie <- str_replace_all(movie_title, " ", "_")
+     url <- paste0("https://en.wikipedia.org/wiki/",wiki_movie)
+     ## Get html and pull the first table which holds all of the information
+     movie_html <- read_html(url)
+     # Catch it not being the film
+     ## Use the forbidden while loop
+     attempts = 0
+     movie_test = FALSE
+     old_url <- url
+     while (movie_test == FALSE & attempts < 3) {
+       if (attempts == 1) {
+         url <- paste0(url, "_(film)")
+       }
+       if (attempts == 2) {
+         url <- paste0(old_url, "_(",year,"_film)")
+       }
+       attempts <- attempts + 1
+       movie_html <- read_html(url)
+       tables_list <-  html_nodes(movie_html, "table")
+       tables_class <-  html_attr(tables_list, "class")
+       info_box_ind <- tables_class %in% c("infobox", "infobox vevent")
+       if (sum(info_box_ind) <1) {
+         next
+       }
+       info_box <- tables_list[info_box_ind] %>% html_table(fill = TRUE)
+       #info_box <- tables_out[info_box_ind]
+       movie_test <- "Budget" %in% info_box[[1]][,1] 
+     }
+     info_table <- info_box[[1]]
+     colnames(info_table) <- c("row", "data")
+     ## Remove [] citations
+      info_table$data <- gsub("\\[[^][]*]", "", info_table$data)
+      ## Select how you want the output
+      if (which == "both") {
+          table_out <- filter(info_table, row %in% c("Budget", "Box office"))
+          return(table_out)
+      } else if (which == "budget"){
+          ind <- info_table$row == "Budget"
+          budget_out <- info_table$data[ind]
+          if (sum(ind) == 0) {
+              return("no budget")
+          }
+          return(budget_out)
+      } else if (which == "box office"){
+          ind <- info_table$row == "Box office"
+          box_out <- info_table$data[ind]
+          return(box_out)
+      }
+}
+
+
+budget_and_box_finder_2(movie_title, "both", year = year)
+
+# sapply(big_votes_title_ratings$primaryTitle,FUN = function(x){
+#     budget_and_box_finder(x, "budget")
+# })
+
+
+budget_list <- list()
+box_list <- list()
+for (k in seq(nrow(big_votes_title_ratings))) {
+    title <- big_votes_title_ratings$primaryTitle[k]
+    year <- big_votes_title_ratings$startYear[k]
+    temp_info <-budget_and_box_finder_2(title, "both", year = year)
+    budget_list[title] <- temp_info[1,2]
+    box_list[title] <- temp_info[2,2]
+}
+length(budget_list)
+
+big_votes_title_ratings$budget <- unlist(budget_list)
+big_votes_title_ratings$box_office <- unlist(box_list)
+```
