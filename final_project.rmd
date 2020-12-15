@@ -1,0 +1,538 @@
+---
+title: "Final Project"
+author: "Tim Nieuwenhuis"
+date: "12/15/2020"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(rvest)
+library(data.table)
+```
+
+## Load in functions I will be using
+
+```{r functions}
+
+
+getURL <- function(URL, FUN, ..., N.TRIES = 1L) {
+    ## Used to safely interact with websites
+        N.TRIES <- as.integer(N.TRIES)
+        stopifnot(length(N.TRIES) == 1L, !is.na(N.TRIES))
+        while (N.TRIES > 0L) {
+            result <- tryCatch(FUN(URL, ...), error = identity)
+            if (!inherits(result, "error")) 
+                break
+            N.TRIES <- N.TRIES - 1L
+        }
+        if (N.TRIES == 0L) {
+            stop("'getURL()' failed:", "\n  URL: ", URL, "\n  error: ", 
+                conditionMessage(result))
+        }
+                result
+    }
+
+imdb_downloader_2 <- function(url){
+    ## The purpose of this function is to easily access and download the data
+    ## from the IMDB dataset website. This function particularly downloads files
+    ## temporarily and loads it into R. The download is temporary because the
+    ## files are large and will probably not be used passed this project
+    
+    ## This "if" is just to fill in the website if the full url was not given
+    if (!startsWith(url, "https")) {
+        url = paste0("https://datasets.imdbws.com/",url) 
+    }
+    ## generate temp file
+    temp <- tempfile()
+    ## getURL safely interacts and downloads the file into temp
+    getURL(URL = url, FUN = download.file, destfile = temp)
+    ## Unzip the .gz and read in the tsv
+    dat_out <- read_delim(temp, delim = "\t")
+      return(dat_out)
+    ## Close links and connections
+    unlink(temp)
+    #close(gzfile(temp, "data.tsv"))
+    closeAllConnections()
+    ## Return dat_out
+    return(dat_out)
+}
+```
+
+## Load in data
+Needed data:
++ Title
++ Release
++ Director
++ Cast
++ Ratings
+
+Filtration will be used from data titles to minimize the size of data loaded
+into the environment, because these files are quite large. 
+```{r}
+if (!file.exists("imbd_filtered_dat.rda")) {
+    ## Movie titles and release years
+    data_titles <- imdb_downloader_2("title.basics.tsv.gz") %>%
+        mutate(startYear = as.numeric(startYear)) %>%
+        filter(startYear >= 1970,
+               titleType == "movie",
+               isAdult == "0")
+    ## Movie ratings
+    data_rating <- imdb_downloader_2("title.ratings.tsv.gz") %>%
+        filter(tconst %in% data_titles$tconst)
+    ## Directors and writer
+    data_director <- imdb_downloader_2("title.crew.tsv.gz") %>%
+        filter(tconst %in% data_titles$tconst)
+    ## Cast
+    data_cast <- imdb_downloader_2("title.principals.tsv.gz") %>%
+        filter(tconst %in% data_titles$tconst)
+    ## Cast Names
+    data_names <- imdb_downloader_2("name.basics.tsv.gz") %>%
+        filter(nconst %in% data_cast$nconst)
+    
+    save(data_titles,
+         data_rating,
+         data_director,
+         data_cast,
+         data_names,
+         file = "imbd_filtered_dat.rda")
+    
+}else{
+    load("imbd_filtered_dat.rda")
+}
+
+```
+
+# Plotting ratings
+
+## Combine titles and ratings to see if there are trends in ratings over time
+```{r}
+filt_titles <- data_titles %>%
+                filter(titleType == "movie",
+                       isAdult == "0",
+                       as.numeric(startYear) >= 1930)
+
+title_ratings <- left_join(filt_titles, data_rating) %>%
+    mutate(startYear = as.numeric(startYear)) %>%
+    filter(!is.na(averageRating))
+
+```
+
+## Plot general ratings over time
+
+Notice the importance of the Y axis scale
+```{r}
+model_1 <-  lm(averageRating ~ startYear + numVotes, data = title_ratings)
+summary(model_1)
+
+## With no ylimit
+ggplot(title_ratings, aes(x = startYear, y = averageRating)) +
+    geom_smooth() +
+    #ylim(c(0,10)) +
+    theme_classic()
+
+## With Y limit
+ggplot(title_ratings, aes(x = startYear, y = averageRating)) +
+    geom_smooth() +
+    ylim(c(0,10)) +
+    theme_classic()
+
+
+```
+
+## Do Horror Films Perform Worse?
+
+It is often said horror is one of the more poorly critically reviewed genres,
+let's see if that's true?
+```{r}
+head(title_ratings)
+unique(unlist(strsplit(title_ratings$genres, ",")))
+
+title_ratings <- mutate(title_ratings, is_horror = str_detect(genres, "Horror"))
+
+
+## With no ylimit
+ggplot(title_ratings, aes(x = startYear, y = averageRating, color = is_horror)) +
+    geom_smooth() +
+    #ylim(c(0,10)) +
+    theme_classic()
+
+## With Y limit
+ggplot(title_ratings, aes(x = startYear, y = averageRating, color = is_horror)) +
+    geom_smooth() +
+    ylim(c(0,10)) +
+    theme_classic()
+
+horror_model <- lm(averageRating ~ is_horror + numVotes, data = title_ratings)
+summary(horror_model)
+```
+
+
+# Getting budgets for films with the most votes
+
+Since IMDb lacks this data we decided to webscrape wikipedia articles for the budgets. Luckily the budget and box office information is in their "info boxes" so we can easily get them. However the way that wikipedia names their url can cause some issues. Below we have two functions `budget_and_box_finder()` and `budget_and_box_finder_2()`. One is 69 lines of code less than the other. The first one is us learning on the fly how wikipedia organizes their movie urls and is bloated with "if/then" statements, while the other one has one `while` loop that handles the various issues that arise while scraping Wikipedia. 
+
+
+## budget_and_box_finder original function
+
+Its bloated, to someone who doesn't know why we did what we did, it makes no sense.
+
+```{r}
+budget_and_box_finder <- function(movie_title, which = "both", year= NULL){
+  may_bool <- FALSE
+  ## Catching specific movie names
+    ## Poorly account for roman numerals
+    if (str_detect(movie_title, " II$")) {
+        movie_title <- str_replace(movie_title, "II", "2")
+    }
+    #leon catch
+    movie_title <- str_replace(movie_title, "Ã©", "é")
+    movie_title <- str_replace_all(movie_title, "[.][.][.]", "")
+    movie_title <- str_replace_all(movie_title, "In Ho", "in Ho")
+    #1917 catch
+    if (movie_title == "1917") {
+        movie_title <- '1917_(2019_film)'
+    }
+    ## Star wars catch
+    if (movie_title == "Star Wars: Episode V - The Empire Strikes Back"){
+      movie_title <- "The Empire Strikes Back"
+    }
+    ## S7ven catch WHY
+    if (movie_title == "Se7en") {
+      movie_title <- "Seven_(1995_film)"
+    }
+    if (movie_title == "Sin City") {
+      movie_title <- "Sin_City_(film)"
+    }
+    if (movie_title == "The Pianist") {
+      movie_title <- "The_Pianist_(2002_film)"
+    }
+    if (movie_title == "The Hunt") {
+      movie_title <- "The_Hunt_(2020_film)"
+    }
+    ## Format to wikipedias format
+     wiki_movie <- str_replace_all(movie_title, " ", "_")
+     url <- paste0("https://en.wikipedia.org/wiki/",wiki_movie)
+     ## Get html and pull the first table which holds all of the information
+     movie_html <- read_html(url)
+     # Catch it not being the film
+     possible_title <-  html_node(movie_html,
+                   xpath = '//*[@id="mw-content-text"]/div[1]/div[2]/a[1]') %>%
+         html_attr('title')
+     # Catch it being a generic wikipedia asking if it may refer to
+     # if (is.na(possible_title)) {
+     #    may_may <- html_node(movie_html,
+     #                   xpath = '//*[@id="mw-content-text"]/div[1]/p/text()[2]') %>%
+     #         html_text()
+     #    may_bool <- str_detect(may_may, "may refer to")
+     # }
+     
+     if ((str_detect(possible_title, "(film)") & !is.na(possible_title))) {
+     wiki_movie <- str_replace_all(possible_title, " ", "_")
+     url <- paste0("https://en.wikipedia.org/wiki/",wiki_movie)
+     ## Get html and pull the first table which holds all of the information
+     movie_html <- read_html(url)
+     } #else if (may_bool){
+     #    url <- paste0(url, "_(film)")
+     #    movie_html <- read_html(url)
+     # }
+     
+     tbls <- html_nodes(movie_html, "table") 
+     table_out <- tbls %>% html_table(fill = T)
+     ## Get table and rename columns
+     info_table <- table_out[[1]]
+     #Toy story is being renamed to Toy Story Fil,
+     if (str_detect(info_table[1,2], "A request") |
+          str_detect(info_table[1,2], "additional") |
+         is.na(info_table[1,2])) {
+       info_table <- table_out[[2]]
+     }
+     ## Catch more things, jesus christ, this one is for momento
+     old_url <- url
+    if (colnames(info_table)[1] %in% c("X1", "State")) {
+        url <- paste0(url, "_(film)")
+        movie_html <- read_html(url)
+        tbls <- html_nodes(movie_html, "table")[1]
+        table_out <- tbls %>% html_table(fill = T)
+        info_table <- table_out[[1]]
+          if (str_detect(info_table[1,2], "Disambiguation") |
+              str_detect(info_table[1,2], "additional") |
+              is.na(info_table[1,2])) {
+            ## Catch city of god
+              if (length(html_nodes(movie_html, "table")) == 1) {
+                 url <- paste0(old_url, "_(",year,"_film)")
+                movie_html <- read_html(url)
+                tbls <- html_nodes(movie_html, "table") 
+                table_out <- tbls %>% html_table(fill = T)
+                info_table <- table_out[[1]]
+              } else {
+        tbls <- html_nodes(movie_html, "table")[2]
+        table_out <- tbls %>% html_table(fill = T)
+       info_table <- table_out[[1]]
+              }
+     }
+
+    }
+     ## If year is needed
+     if (colnames(info_table)[1] == "X1") {
+    url <- paste0(old_url, "_(",year,"_film)")
+    movie_html <- read_html(url)
+    tbls <- html_nodes(movie_html, "table") 
+    table_out <- tbls %>% html_table(fill = T)
+    info_table <- table_out[[1]]
+
+     }
+      if (colnames(info_table)[1] == "X1") {
+    info_table <- table_out[[2]]
+     }
+     colnames(info_table) <- c("row", "data")
+     ## Remove [] citations
+      info_table$data <- gsub("\\[[^][]*]", "", info_table$data)
+      ## Make numeric option here eventually
+      ## Select how you want the output
+      if (which == "both") {
+          table_out <- filter(info_table, row %in% c("Budget", "Box office"))
+          return(table_out)
+      } else if (which == "budget"){
+          ind <- info_table$row == "Budget"
+          budget_out <- info_table$data[ind]
+          if (sum(ind) == 0) {
+              return("no budget")
+          }
+          return(budget_out)
+      } else if (which == "box office"){
+          ind <- info_table$row == "Box office"
+          box_out <- info_table$data[ind]
+          return(box_out)
+      }
+}
+```
+
+## budget_and_box_finder_2 function
+
+Still bloated, but much better.
+
+```{r}
+budget_and_box_finder_2 <- function(movie_title, which = "both", year= NULL){
+    if (str_detect(movie_title, " II$")) {
+        movie_title <- str_replace(movie_title, "II", "2")
+    }
+    #leon catch
+    movie_title <- str_replace(movie_title, "Ã©", "é")
+    # Catch "In Hollywood"
+    movie_title <- str_replace_all(movie_title, "[.][.][.]", "")
+    movie_title <- str_replace_all(movie_title, "In Ho", "in Ho")
+    ## Format to wikipedias format
+     wiki_movie <- str_replace_all(movie_title, " ", "_")
+     url <- paste0("https://en.wikipedia.org/wiki/",wiki_movie)
+     ## Get html and pull the first table which holds all of the information
+     movie_html <- read_html(url)
+     # Catch it not being the film
+     ## Use the forbidden while loop
+     attempts = 0
+     movie_test = FALSE
+     old_url <- url
+     while (movie_test == FALSE & attempts < 3) {
+        ## attempts are used to test different urls if they fail
+       if (attempts == 1) {
+         url <- paste0(url, "_(film)")
+       }
+       if (attempts == 2) {
+         url <- paste0(old_url, "_(",year,"_film)")
+       }
+       attempts <- attempts + 1
+       ## read URL and get tables
+       movie_html <- read_html(url)
+       tables_list <-  html_nodes(movie_html, "table")
+       ##G Get tables class and check if any of them are infobox, the table that
+       ## generally stores the data we want
+       tables_class <-  html_attr(tables_list, "class")
+       info_box_ind <- tables_class %in% c("infobox", "infobox vevent")
+       ## If there is no infobox skip and go to next attempt
+       if (sum(info_box_ind) <1) {
+         next
+       }
+       ## If there is an infobox take it out and make it a table
+       info_box <- tables_list[info_box_ind] %>% html_table(fill = TRUE)
+       ## Test if the infobox has the "Budget" if it does leave the loop
+       ## if not begin another attempt
+       movie_test <- "Budget" %in% info_box[[1]][,1] 
+     }
+     info_table <- info_box[[1]]
+     colnames(info_table) <- c("row", "data")
+     ## Remove [] citations
+      info_table$data <- gsub("\\[[^][]*]", "", info_table$data)
+      ## Select how you want the output
+      if (which == "both") {
+          table_out <- filter(info_table, row %in% c("Budget", "Box office"))
+          return(table_out)
+      } else if (which == "budget"){
+          ind <- info_table$row == "Budget"
+          budget_out <- info_table$data[ind]
+          if (sum(ind) == 0) {
+              return("no budget")
+          }
+          return(budget_out)
+      } else if (which == "box office"){
+          ind <- info_table$row == "Box office"
+          box_out <- info_table$data[ind]
+          return(box_out)
+      }
+}
+
+
+
+```
+
+
+## Let's look at the top 100 movies
+
+First we pull the top movies and get their budget and box office revenue.
+
+```{r}
+ord_title_ratings <- title_ratings %>% arrange(desc(averageRating))
+big_votes_title_ratings <- filter(title_ratings, numVotes > quantile(ord_title_ratings$numVotes, .999)) %>%
+    arrange(desc(averageRating)) %>% slice_head(n = 100)
+
+budget_list <- list()
+box_list <- list()
+for (k in seq(nrow(big_votes_title_ratings))) {
+    title <- big_votes_title_ratings$primaryTitle[k]
+    year <- big_votes_title_ratings$startYear[k]
+    temp_info <-budget_and_box_finder_2(title, "both", year = year)
+    budget_list[title] <- temp_info[1,2]
+    box_list[title] <- temp_info[2,2]
+}
+length(budget_list)
+
+big_votes_title_ratings$budget <- unlist(budget_list)
+big_votes_title_ratings$box_office <- unlist(box_list)
+```
+
+But hold on let's look at those numbers
+
+```{r}
+head(big_votes_title_ratings$budget)
+```
+
+Numbers would be a misnomer, those are characters. Lets turn those character into numbers, on the scale of millions. 
+
+## Making character numerics
+
+```{r}
+
+wiki_money <- function(money_vect){
+  ## To catch avatar's weird budget
+  temp_vect <- gsub("n\\$[1-9].+", "", money_vect)
+  ##
+  temp_vect <- gsub("^.+\\$", "", temp_vect)
+  temp_vect <- gsub("^.+\\–", "", temp_vect)
+  temp_vect <- gsub("milli.+", "", temp_vect)
+  temp_vect <- gsub("\\$", "", temp_vect)
+  ## Deal with billion to make million
+  bill_ind <- grep("billi", temp_vect)
+  temp_vect <- gsub("billi.+", "", temp_vect)
+  #Back together
+  temp_vect <- str_trim(temp_vect)
+  num_mil <- as.numeric(temp_vect)
+  num_mil[bill_ind] <- num_mil[bill_ind] * 1000
+  return(num_mil)
+}
+
+big_votes_title_ratings$budget <- wiki_money(big_votes_title_ratings$budget)
+big_votes_title_ratings$box_office <- wiki_money(big_votes_title_ratings$box_office)
+```
+
+
+## Plotting out the results of box office and budget webscraping
+
+Plot movies with most votes and their budgets.
+```{r}
+ggplot(big_votes_title_ratings, aes(budget, box_office)) +
+ geom_point() +
+  #geom_text(aes(label = primaryTitle )) +
+  theme_classic() +
+  labs(title = "IMDb Movies with the most votes and their box office vs budget",
+       subtitle = "box office and budget from Wikipedia") +
+  ylab("Box Office Earnings (In Millions)") +
+  xlab("Budget (In Millions)") 
+
+ggplot(big_votes_title_ratings, aes(budget, averageRating)) +
+  geom_point() +
+  theme_classic()
+
+
+
+ggplot(big_votes_title_ratings, aes(box_office, averageRating)) +
+  geom_point() +
+  theme_classic()
+```
+
+
+# Making a search function for the IMDb database
+
+Make a function that uses available data.frames to search for a given person and allowing multiple arguments.
+```{r}
+
+
+actor_movies <- function(person, year = NA,
+                         profession = NA,
+                         genre = NA,
+                         min_rating = 0,
+                         need_lead = FALSE) {
+## Filter names and get constant
+  temp_names <- filter(data_names, primaryName == person)
+  name_const <- temp_names$nconst
+  temp_cast <- filter(data_cast, nconst == name_const)  %>%
+    mutate(characters = gsub("\\[", "", gsub("\\]", "", characters)))
+  ## Get leads
+  if (need_lead == TRUE) {
+    temp_cast <- filter(temp_cast, ordering == 1)
+  }
+  ## Filter profession
+  if (!is.na(profession)) {
+    temp_cast <- filter(temp_cast, categor == profession)
+  }
+  temp_title <- title_ratings %>%
+    ## Get movies of actors, apply min_rating and release filter, clean up
+    filter(tconst %in% temp_cast$tconst,
+           averageRating >= min_rating,
+           case_when(
+             !is.na(year) ~ startYear == year,
+             TRUE ~ is.numeric(startYear)
+           )) %>% select(tconst,
+                         primaryTitle,
+                         release_year = startYear,
+                         genres,
+                         averageRating)
+  ## Genre wouldn't work in code above
+  if (!is.na(genre)) {
+    temp_title <- filter(temp_title, str_detect(genres, genre))
+  }
+  ## Rename stuff to look nice and return
+  final_out <- left_join(temp_title, temp_cast, by = "tconst") %>%
+                  select(`Movie Title` = primaryTitle,
+                         `Release Year` = release_year,
+                         Job = category,
+                         Role = characters,
+                         `Name Order` = ordering, 
+                         Rating = averageRating,
+                         Genres = genres)
+  return(final_out)
+}
+
+
+```
+
+Let's test it!
+```{r}
+actor_movies("Christopher Walken", need_lead = T, year = 1990, min_rating = 6.5)
+actor_movies("Bryan Cranston")
+actor_movies("Philip Seymour Hoffman", genre = "Drama")
+actor_movies("Quentin Tarantino")
+```
+
+
+Uh... the end?
