@@ -187,6 +187,23 @@ ggplot(melted_genres_ratings, aes(x = genres, y = averageRating, color = genres)
   theme_classic() +
   theme(legend.position = "none") +
   coord_flip()
+
+
+melted_genres_ratings_min_thou <- filter(melted_genres_ratings, numVotes >= 1000)
+
+ggplot(melted_genres_ratings_min_thou, aes(x = genres, y = averageRating, color = genres)) +
+  geom_sina() +
+  theme_classic() +
+  theme(legend.position = "none") +
+  coord_flip()
+
+ggplot(melted_genres_ratings_min_thou, aes(x = genres, y = averageRating, color = genres)) +
+  geom_sina() +
+  geom_boxplot(outlier.size = -1) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  coord_flip()
+
 ```
 
 
