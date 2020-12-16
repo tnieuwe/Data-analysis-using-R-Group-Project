@@ -170,6 +170,27 @@ summary(horror_model)
 ```
 
 
+```{r}
+library(splitstackshape)
+library(ggforce)
+genre_rating <- title_ratings %>% select(primaryTitle, genres, averageRating, numVotes)
+head(genre_rating)
+
+## cSplit basically allows us to melt the dataframe via a single column in this
+## case "genre"
+melted_genres_ratings <- cSplit(genre_rating, "genres", sep = ",", direction = "long")
+
+## Make a geom_sina plot, geom_sina is a combination between a jitter plot
+## and a violin plot, both giving a sense of N size while showing data distribution.
+ggplot(melted_genres_ratings, aes(x = genres, y = averageRating, color = genres)) +
+  geom_sina() +
+  theme_classic() +
+  theme(legend.position = "none") +
+  coord_flip()
+```
+
+
+
 # Getting budgets for films with the most votes
 
 Since IMDb lacks this data we decided to webscrape wikipedia articles for the budgets. Luckily the budget and box office information is in their "info boxes" so we can easily get them. However the way that wikipedia names their url can cause some issues. Below we have two functions `budget_and_box_finder()` and `budget_and_box_finder_2()`. One is 69 lines of code less than the other. The first one is us learning on the fly how wikipedia organizes their movie urls and is bloated with "if/then" statements, while the other one has one `while` loop that handles the various issues that arise while scraping Wikipedia. 
