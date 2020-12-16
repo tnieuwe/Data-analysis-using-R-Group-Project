@@ -199,7 +199,7 @@ ggplot(melted_genres_ratings_min_thou, aes(x = genres, y = averageRating, color 
 
 ggplot(melted_genres_ratings_min_thou, aes(x = genres, y = averageRating, color = genres)) +
   geom_sina() +
-  geom_boxplot(outlier.size = -1) +
+  geom_boxplot(outlier.size = -1, color = "black") +
   theme_classic() +
   theme(legend.position = "none") +
   coord_flip()
@@ -464,7 +464,8 @@ Numbers would be a misnomer, those are characters. Lets turn those character int
 wiki_money <- function(money_vect){
   ## To catch avatar's weird budget
   temp_vect <- gsub("n\\$[1-9].+", "", money_vect)
-  ##
+  ## This selects the second number if it is a range
+  ## eg $5-$7 million becomes $7 million
   temp_vect <- gsub("^.+\\$", "", temp_vect)
   temp_vect <- gsub("^.+\\–", "", temp_vect)
   temp_vect <- gsub("milli.+", "", temp_vect)
