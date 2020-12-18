@@ -1,19 +1,60 @@
 ---
 title: "Final Project"
-author: "Tim Nieuwenhuis"
+author: "Tim Nieuwenhuis, Carlie Hruban, Nancy Porter"
 date: "12/15/2020"
-output: html_document
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    collapsed: false
+    smooth_scroll: false
+    toc_depth: 1
 ---
-
-
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE,warning = FALSE)
 library(tidyverse)
 library(rvest)
 library(data.table)
 ```
+# 1. Background
 
-## Load in functions I will be using
+## Introduction of Project
+
+This past year has been fraught with challenges due to the coronavirus pandemic, one of those challenges has been finding safe ways to socialize with friends. The novelty of zoom happy hours with friends quickly wore off and everyone started to run out of things to talk about, mostly because no one was going anywhere or experiencing new things. So, people started to get creative and found new ways to interact with friends and to keep the conversation going. A new game was developed loosely based on the concept of fantasy football drafts, but instead of football players, you draft movies. 
+
+The concept of the game is fairly simple: you want to “draft” the best fil festival lineup from the movies released during the selected year. Each film festival lineup must include one movie for each of the following categories: Drama, Comedy, Blockbuster (must have made >$80million in box office), Action/Thriller, Sci-Fi/Horror, and Animated/Family. Each movie can only be drafted once, once a movie has been drafted it is no longer available. There are three different player roles to choose from: The Host (1 player), Film Festival Curators (2-X players), and Film Festival Critics (1-X players). Prior to game play, the host selects a year/year(s) for the film festival, for example the host could pick the year 1999, or they could pick 1995-1999. Once the year(s) has been selected, Curators then start on their “homework” – looking up movies from the selected year(s) and jotting down which movies they want for each category (some movies can fit into multiple categories), along with plenty of backups incase the movie you wanted gets drafted by another Curator. At the start of the game, the Host will randomly select the order in which Curators will draft. The draft order will then “snake” through the draft order for 6 rounds: (round 1: 1-2-3-4-5-6, round 2: 6-5-4-3-2-1, round 3: 1-2-3-4-5-6, ……, round 6: 6-5-4-3-2-1).
+
+When it is a Curator’s turn, the Curator will announce which movie they want to draft, and which category they are drafting that movie for. There are no set time limits, however, each Curator should announce their draft pick within a few minutes (this is to ensure timely game play, as well as prevent players from skipping their pre-game homework). The Host then verifies that the selected movie is available to be drafted, and that the movie fits into the selected category. Once the movie pick has been verified, the Host then enters the movie selection on the game board (spreadsheet). Game play continues till all Curators have drafted 6 movies, 1 for each category. The Host then gives each Curator a chance to defend/hype their film festival lineup to the Critics. The Critics then rank each film festival lineup, 1 being the best lineup and so on. Point values are awarded to each Curator based on the Critics’ rankings (1st=X pts, 2nd=X pts, ….), then tallied for an Overall Critics’ Score. Additionally, the Critics (or Host, or Curators) will pick their overall top movie draft for each category. Bonus points are then awarded for each Top Movie Category draft picks. 
+
+## Strategy.
+
+There are a few different strategies involved in selecting which movies to draft, when to draft them, and for what category to draft them. Depending on the year, there may not me many movies that meet the requirement for the Blockbuster category, so you may want to draft your Blockbuster movie in Round 1. You also may be aware that the Critics really like certain directors, so you may take that into consideration when selecting your draft picks. It is also important to remember that movies can fit into several different categories, so the category you put the movie into matters, especially for the Bonus Points. 
+
+The part where our project comes into play is largely in the pre-game “homework” section. Each year thousands of movies are released, and it is hard to recall all the movies and their categories. When playing with a diverse group of friends, it is also strategic to select movies based on more than personal preference. This can be time consuming and tedious since you need to have a deep list prepared so when it is your turn, you can easily and quickly draft the best movie. Our project will significantly cut down on time spent doing pre-game homework, it will also assist players during the draft to make quick and informed draft picks. To do this, we will use a combination of IMDB and Rotten Tomatoes movie ratings, as well as information on movie year, genre, directors, and actors. Allowing players to filter movies based on specified criteria.
+
+# 2. Goals
+
+The goal of our project is to create a database of all movies released from 1970 to 2020. The dataset will include IMDB score, Rotten Tomatoes score, Year of movie release, Total box office earnings, names of directors, names of actors, and genre. We will then calculate an average score of the IMDB and Rotten Tomatoes score. Additionally, we will create bins of genres for each category (i.e., Blockbuster bins all movies with over $80 million at the box office, and Horror/Thriller category bins all horror and thriller movies, etc). Within this database we will create functions to filter by year, directors, actors, genre, etc. We will also create a function to allow the player to flag, and rank the movies they want for each category.
+
+# 3. Data
+
+## Description of the Data:
+
+Data for this project was obtained (legally) data from IMDb’s website (https://datasets.imdbws.com/). IMDb provides subsets of their data, which is available for personal and non-commercial use, and is refreshed daily on their website. In total, there are 7 TSV datasets available with fields pertaining to the movie title, year, genre, as well as TV episodes, and information on directors, writers, and principle cast/crew. Each dataset contains a unique alphanumeric identifier which can be used to merge the datasets together by Title, or Person.
+
+Budget and box office data was obtained from Wikipedia, as the IMDb data does not include financial information. This data required a bit more effort to obtain, and required us to create a function to webscrape Wikipedia articles for budget and box office information. Budget and box office information is structured in the same way on every Wikipedia movie page, putting it in the ‘quick info box’ (Figure 1). This consistency made webscraping slightly easier, however, this did not remain true when it came to figuring out Wikipedia’s url naming convention. 
+
+![Figure 1. Budget and Box Office Information from Wikipedia](data_in/wiki_jackie.png)
+
+## Data Cleaning and Manipulation Steps
+
+### IMDb data
+
+Given the size of the IMDb datasets, we decided to write a function which accesses and temporarily downloads the data from the IMDb website, and loads them into RStudio. The benefit of this function is two-fold, as it saves space on your computer and also allows you to have the refreshed daily data. For the majority of our data cleaning and manipulation steps, we used the “dplyr” package, which is part of the “tidyverse” package. Using the filter ( ) function, we filtered based on the information that was pertinent to this project: title, release year, director, cast, and ratings for movies released from 1970 to 2020. Then we combined the datasets together using the left_join ( ) function in the dplyr package. 
+
+
+
+## Generate functions used to load data
 
 ```{r functions}
 
@@ -63,14 +104,16 @@ imdb_downloader_2 <- function(url){
 
 ## Load in data
 Needed data:
-+ Title
-+ Release
-+ Director
-+ Cast
-+ Ratings
+* Title
+* Release
+* Director
+* Cast
+* Ratings
 
-Filtration will be used from data titles to minimize the size of data loaded
-into the environment, because these files are quite large. 
+
+
+Starting with Titles, we will progressively filter down the other data.frames of unnecessary data, such as those from TV shows. The if/else statement below makes sure we only have to download the data once.
+
 ```{r}
 if (!file.exists("imbd_filtered_dat.rda")) {
     ## Movie titles and release years
@@ -105,9 +148,10 @@ if (!file.exists("imbd_filtered_dat.rda")) {
 
 ```
 
-# Plotting ratings
+# 4a. Analysis: Plotting ratings
 
 ## Combine titles and ratings to see if there are trends in ratings over time
+
 ```{r}
 filt_titles <- data_titles %>%
                 filter(titleType == "movie",
@@ -124,9 +168,6 @@ title_ratings <- left_join(filt_titles, data_rating) %>%
 
 Notice the importance of the Y axis scale
 ```{r}
-model_1 <-  lm(averageRating ~ startYear + numVotes, data = title_ratings)
-summary(model_1)
-
 ## With no ylimit
 ggplot(title_ratings, aes(x = startYear, y = averageRating)) +
     geom_smooth() +
@@ -144,8 +185,8 @@ ggplot(title_ratings, aes(x = startYear, y = averageRating)) +
 
 ## Do Horror Films Perform Worse?
 
-It is often said horror is one of the more poorly critically reviewed genres,
-let's see if that's true?
+After seeing these plots we wondered if this is varies by genre. It is often said horror is one of the more poorly critically reviewed genres, so we took a look. First, we needed to look at our data to see how to select only horror films. Movies rarely fit into only one genre so we needed to see how IMDb handled this in the data. Turns out, each genre is separated with a comma, so by using a string split function, we were able to search titles that had horror listed as one of their genres.  Once we identified all of the horror films, using ggplot we plotted the average rating for horror films and compared them against all other films over time.
+
 ```{r}
 head(title_ratings)
 unique(unlist(strsplit(title_ratings$genres, ",")))
@@ -156,21 +197,31 @@ title_ratings <- mutate(title_ratings, is_horror = str_detect(genres, "Horror"))
 ## With no ylimit
 ggplot(title_ratings, aes(x = startYear, y = averageRating, color = is_horror)) +
     geom_smooth() +
+    xlab("Release Year") +
+    ylab("Average Rating") +
+    labs(color = "Is the genre horror?") +
     #ylim(c(0,10)) +
     theme_classic()
 
 ## With Y limit
 ggplot(title_ratings, aes(x = startYear, y = averageRating, color = is_horror)) +
     geom_smooth() +
+    xlab("Release Year") +
+    ylab("Average Rating") +
+    labs(color = "Is the genre horror?") +
     ylim(c(0,10)) +
     theme_classic()
-
+```
+	As seen in the plots above, it appears that horror films are more poorly rated than films in other genres. But by how much? Using a linear regression model we were able to quantify the difference. On average, horror films receive a 27% lower rating than films of other genres. 
+	
+```{r}
 horror_model <- lm(averageRating ~ is_horror + numVotes, data = title_ratings)
 summary(horror_model)
 ```
 
+		To take it a step further, we wanted to compare all the genres with each other over time. Using the cSplit ( ) function from the splitatckshape package we melted the variable genre and used the ggforce package to create a geom_sina plot which provides a sense of the sample size while also showing the distribution of the movies in each genre over the years. 
 
-```{r}
+```{r fig.width = 7, fig.height = 9}
 library(splitstackshape)
 library(ggforce)
 genre_rating <- title_ratings %>% select(primaryTitle, genres, averageRating, numVotes)
@@ -185,33 +236,26 @@ melted_genres_ratings <- cSplit(genre_rating, "genres", sep = ",", direction = "
 ggplot(melted_genres_ratings, aes(x = genres, y = averageRating, color = genres)) +
   geom_sina() +
   theme_classic() +
+  ylab("Average Rating") +
   theme(legend.position = "none") +
   coord_flip()
 
-
+## Limit Movies
 melted_genres_ratings_min_thou <- filter(melted_genres_ratings, numVotes >= 1000)
 
 ggplot(melted_genres_ratings_min_thou, aes(x = genres, y = averageRating, color = genres)) +
   geom_sina() +
-  theme_classic() +
-  theme(legend.position = "none") +
-  coord_flip()
-
-ggplot(melted_genres_ratings_min_thou, aes(x = genres, y = averageRating, color = genres)) +
-  geom_sina() +
   geom_boxplot(outlier.size = -1, color = "black") +
+  ylab("Average Rating") +
   theme_classic() +
   theme(legend.position = "none") +
   coord_flip()
 
 ```
 
+# 4b. Analysis: Wikipedia Budget and Box Office Data
 
-
-# Getting budgets for films with the most votes
-
-Since IMDb lacks this data we decided to webscrape wikipedia articles for the budgets. Luckily the budget and box office information is in their "info boxes" so we can easily get them. However the way that wikipedia names their url can cause some issues. Below we have two functions `budget_and_box_finder()` and `budget_and_box_finder_2()`. One is 69 lines of code less than the other. The first one is us learning on the fly how wikipedia organizes their movie urls and is bloated with "if/then" statements, while the other one has one `while` loop that handles the various issues that arise while scraping Wikipedia. 
-
+Once we had a good sense of the IMDb data, we were ready to take a look at the Wikipedia data on budget and box office. The first function that we wrote (`budget_and_box_finder()`) to webscrape budget and box office data from Wikipedia uses “if/then” statements and took ~125 lines of code to obtain budget and box office data from the top 100 movies. Then we wrote a second function (`budget_and_box_finder_2()`) that is uses one “while” loop and works smarter not harder at about 73 lines of code. 
 
 ## budget_and_box_finder original function
 
@@ -354,9 +398,17 @@ budget_and_box_finder <- function(movie_title, which = "both", year= NULL){
 
 ```{r}
 budget_and_box_finder_2 <- function(movie_title, which = "both", year= NULL){
+    ## Catch the mountain
     if (str_detect(movie_title, " II$")) {
+      if (str_detect(movie_title, "Mountain")) {
         movie_title <- str_replace(movie_title, "II", "2")
+      }
+        
     }
+    ## Catch the Godfathers
+     if (str_detect(movie_title, "Godfather")) {
+      movie_title  <- gsub("\\:", "", movie_title)
+     }
     #leon catch
     movie_title <- str_replace(movie_title, "Ã©", "é")
     # Catch "In Hollywood"
@@ -500,17 +552,21 @@ ggplot(big_votes_title_ratings, aes(budget, box_office)) +
 
 ggplot(big_votes_title_ratings, aes(budget, averageRating)) +
   geom_point() +
+  ylab("Average Rating") +
+  xlab("Budget (In Millions)") +
   theme_classic()
 
 
 
 ggplot(big_votes_title_ratings, aes(box_office, averageRating)) +
+  ylab("Average Rating") +
+  xlab("Box Office Earnings (In Millions)") +
   geom_point() +
   theme_classic()
 ```
 
 
-# Making a search function for the IMDb database
+# 4c. Analysis:  Making a search function for the IMDb database
 
 Make a function that uses available data.frames to search for a given person and allowing multiple arguments.
 ```{r}
