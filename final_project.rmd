@@ -12,10 +12,21 @@ output:
 ---
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE,warning = FALSE)
-library(tidyverse)
-library(rvest)
-library(data.table)
 ```
+
+### Libraries
+
+```{r}
+## Used for dplyr, ggplot, and readr for data manipulation, graphs, and data
+## reading respectively
+library(tidyverse)
+## Used for webscraping
+library(rvest)
+## Used for ggplot axis
+library(scales)
+```
+
+
 # 1. Background
 
 ## Introduction of Project
@@ -103,18 +114,22 @@ imdb_downloader_2 <- function(url){
 
 ## Load in data
 Needed data:
-* Title
-* Release
-* Director
-* Cast
-* Ratings
+ * Title
+ * Release
+ * Director
+ * Cast
+ * Ratings
 
 
 
 Starting with Titles, we will progressively filter down the other data.frames of unnecessary data, such as those from TV shows. The if/else statement below makes sure we only have to download the data once.
 
 ```{r}
-if (!file.exists("imbd_filtered_dat.rda")) {
+## In response to CG Wang's input making an object
+imbd_file <- "imbd_filtered_dat.rda"
+
+
+if (!file.exists(imbd_file)) {
     ## Movie titles and release years
     data_titles <- imdb_downloader_2("title.basics.tsv.gz") %>%
         mutate(startYear = as.numeric(startYear)) %>%
@@ -139,10 +154,10 @@ if (!file.exists("imbd_filtered_dat.rda")) {
          data_director,
          data_cast,
          data_names,
-         file = "imbd_filtered_dat.rda")
+         file = imbd_file)
     
 }else{
-    load("imbd_filtered_dat.rda")
+    load(imbd_file)
 }
 
 ```
@@ -167,18 +182,39 @@ title_ratings <- left_join(filt_titles, data_rating) %>%
 
 Notice the importance of the Y axis scale
 ```{r}
+
+
+
 ## With no ylimit
 ggplot(title_ratings, aes(x = startYear, y = averageRating)) +
     geom_smooth() +
+    xlab("Release Year") +
+    ylab("Average Rating") +
     #ylim(c(0,10)) +
     theme_classic()
 
 ## With Y limit
 ggplot(title_ratings, aes(x = startYear, y = averageRating)) +
     geom_smooth() +
+    xlab("Release Year") +
+    ylab("Average Rating") +
     ylim(c(0,10)) +
     theme_classic()
 
+ggplot(title_ratings, aes(x = averageRating, y = numVotes)) +
+  geom_point() +
+  xlab("Average Rating") +
+  ylab("Number of Votes") +
+  #ylim(c(0,10)) +
+  theme_classic()
+
+ggplot(title_ratings, aes(x = averageRating, y = numVotes)) +
+  geom_hex() +
+  xlab("Average Rating") +
+  ylab("Number of Votes") +
+  scale_y_continuous(labels = comma,trans = "log10") +
+  #ylim(c(0,10)) 
+  theme_classic()
 
 ```
 
@@ -218,7 +254,7 @@ horror_model <- lm(averageRating ~ is_horror + numVotes, data = title_ratings)
 summary(horror_model)
 ```
 
-		To take it a step further, we wanted to compare all the genres with each other over time. Using the cSplit ( ) function from the splitatckshape package we melted the variable genre and used the ggforce package to create a geom_sina plot which provides a sense of the sample size while also showing the distribution of the movies in each genre over the years. 
+To take it a step further, we wanted to compare all the genres with each other over time. Using the cSplit ( ) function from the splitatckshape package we melted the variable genre and used the ggforce package to create a geom_sina plot which provides a sense of the sample size while also showing the distribution of the movies in each genre over the years. 
 
 ```{r fig.width = 7, fig.height = 9}
 library(splitstackshape)
@@ -435,7 +471,7 @@ budget_and_box_finder_2 <- function(movie_title, which = "both", year= NULL){
        ## read URL and get tables
        movie_html <- read_html(url)
        tables_list <-  html_nodes(movie_html, "table")
-       ##G Get tables class and check if any of them are infobox, the table that
+       ## Get tables class and check if any of them are infobox, the table that
        ## generally stores the data we want
        tables_class <-  html_attr(tables_list, "class")
        info_box_ind <- tables_class %in% c("infobox", "infobox vevent")
@@ -587,7 +623,7 @@ actor_movies <- function(person, year = NA,
   }
   ## Filter profession
   if (!is.na(profession)) {
-    temp_cast <- filter(temp_cast, categor == profession)
+    temp_cast <- filter(temp_cast, category == profession)
   }
   temp_title <- title_ratings %>%
     ## Get movies of actors, apply min_rating and release filter, clean up
@@ -622,11 +658,10 @@ actor_movies <- function(person, year = NA,
 
 Let's test it!
 ```{r}
-actor_movies("Quentin Tarantino")
-actor_movies("Philip Seymour Hoffman", genre = "Drama")
-actor_movies("Christopher Walken", need_lead = T, year = 1990, min_rating = 6.5)
+actor_movies("Quentin Tarantino", profession = "director")
 ```
 
 # 4. Summary
-	The IMDb data in combination with the budget and box office data from Wikipedia, has allowed us to create an excellent resource to aid in pre-game “homework” that could even be used during game play if needed. The functions that we wrote allow the user to have movie rating and box office data in one spot. In addition, the function that pulls the IMDb data and stores it as a temporary file allowing the user to have data on the latest films. The sina plots provide an excellent visual resource to see which genres receive the highest average ratings. Which could be great if you weren’t sure if you should pick Ghostbusters or Gremlins for your 1984 comedy category pick, since both have an average rating over 7. Both films are comedy and fantasy, and after running a quick search for genre for those movies we see that Ghostbusters is also an action movie and Gremlins falls into the horror genre. The sina plot shows us that action movies have a higher average rating than horror films, so the better pick is mostly likely Ghostbusters. The functions and plots in this R program can not only help you win the film festival draft game, they can help you settle debates about which movie genre is the best, or answer the question “has Quentin Tarantino made a movie that hasn’t received a rating below 8?”. 
+
+The IMDb data in combination with the budget and box office data from Wikipedia, has allowed us to create an excellent resource to aid in pre-game “homework” that could even be used during game play if needed. The functions that we wrote allow the user to have movie rating and box office data in one spot. In addition, the function that pulls the IMDb data and stores it as a temporary file allowing the user to have data on the latest films. The sina plots provide an excellent visual resource to see which genres receive the highest average ratings. Which could be great if you weren’t sure if you should pick Ghostbusters or Gremlins for your 1984 comedy category pick, since both have an average rating over 7. Both films are comedy and fantasy, and after running a quick search for genre for those movies we see that Ghostbusters is also an action movie and Gremlins falls into the horror genre. The sina plot shows us that action movies have a higher average rating than horror films, so the better pick is mostly likely Ghostbusters. The functions and plots in this R program can not only help you win the film festival draft game, they can help you settle debates about which movie genre is the best, or answer the question “has Quentin Tarantino made a movie that hasn’t received a rating below 8?”. 
 
